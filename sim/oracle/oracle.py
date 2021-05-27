@@ -5,11 +5,11 @@ from typing import NamedTuple
 from typing import Tuple, Optional
 
 import pandas as pd
-from skippy.core.clustercontext import ClusterContext
-from skippy.core.model import Pod, SchedulingResult, ImageState
-from skippy.core.utils import parse_size_string, normalize_image_name
 from srds import BoundRejectionSampler, BufferedSampler
 
+from core.clustercontext import ClusterContext
+from core.model import Pod, SchedulingResult, ImageState
+from core.utils import parse_size_string, normalize_image_name
 from sim.oracle.data.distributions import execution_time_distributions, startup_time_distributions
 
 Bandwidth = NamedTuple('Bandwidth', [('mbit', int), ('delay', int), ('deviation', int)])

@@ -11,7 +11,8 @@ from ether.scenarios.urbansensing import UrbanSensingScenario, default_cell_dens
 from srds import IntegerTruncationSampler
 
 from core.storage import StorageIndex
-from ext.raith21 import storage
+from ext.datalocality import storage
+
 from sim.topology import Topology
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,9 @@ def parts(a, b):
 class FasterMobileConnection(UpDownLink):
 
     def __init__(self, backhaul='internet') -> None:
-        super().__init__(250, 250, backhaul)
+        # bw = random.choices([50, 100])[0]
+        bw = random.choices([50, 100, 200])[0]
+        super().__init__(bw, bw, backhaul)
 
 
 class HeterogeneousUrbanSensingScenario(UrbanSensingScenario):
@@ -129,30 +132,6 @@ class HeterogeneousUrbanSensingScenario(UrbanSensingScenario):
             while len(split) != 4:
                 split.append(0)
             random.shuffle(split)
-            choices = random.choices(['tx2', 'nano', 'coral', 'nx'], weights=split, k=take)
-
-            def select_nodes(nodes, n):
-                if n > len(nodes):
-                    diff = n - len(nodes)
-                    n -= diff
-                return nodes[selected_size:], nodes[:selected_size]
-
-            selected_accelerator_nodes = []
-            for i in range(take):
-                node = choices[i]
-                selected_size = split[i]
-                if node == 'tx2':
-                    tx2_nodes, selected_nodes = select_nodes(tx2_nodes, selected_size)
-                    selected_accelerator_nodes.extend(selected_nodes)
-                elif node == 'nx':
-                    nx_nodes, selected_nodes = select_nodes(nx_nodes, selected_size)
-                    selected_accelerator_nodes.extend(selected_nodes)
-                elif node == 'nano':
-                    nano_nodes, selected_nodes = select_nodes(nano_nodes, selected_size)
-                    selected_accelerator_nodes.extend(selected_nodes)
-                elif node == 'coral':
-                    coral_nodes, selected_nodes = select_nodes(coral_nodes, selected_size)
-                    selected_accelerator_nodes.extend(selected_nodes)
 
             selected_nuc_nodes = []
 
@@ -168,26 +147,16 @@ class HeterogeneousUrbanSensingScenario(UrbanSensingScenario):
 
                 selected_aot_nodes = aot_nodes[:size]
                 aot_nodes = aot_nodes[size:]
-            if len(selected_accelerator_nodes) > 0:
-                box = IoTComputeBox(selected_accelerator_nodes)
-                neighborhood = SharedLinkCell(
-                    nodes=[
-                        selected_nuc_nodes,
-                        selected_aot_nodes,
-                        box
-                    ],
-                    shared_bandwidth=10000,
-                    backhaul=FasterMobileConnection(self.internet)
-                )
-            else:
-                neighborhood = SharedLinkCell(
-                    nodes=[
-                        selected_nuc_nodes,
-                        selected_aot_nodes,
-                    ],
-                    shared_bandwidth=10000,
-                    backhaul=FasterMobileConnection(self.internet)
-                )
+
+            neighborhood = SharedLinkCell(
+                nodes=[
+                    selected_nuc_nodes,
+                    selected_aot_nodes,
+                ],
+                shared_bandwidth=random.choices([500, 1000, 200])[0],
+                # shared_bandwidth=random.choices([200, 500])[0],
+                backhaul=FasterMobileConnection(self.internet)
+            )
 
             neighborhoods.append(neighborhood)
 
@@ -204,22 +173,32 @@ class HeterogeneousUrbanSensingScenario(UrbanSensingScenario):
             if len(nuc_nodes) > 0:
                 neighborhoods[index].nodes.append([nuc_nodes[0]])
                 nuc_nodes = nuc_nodes[1:]
+        if len(neighborhoods) > 0:
+            for nuc_node in nuc_nodes:
+                index = random.randint(0, len(neighborhoods) - 1)
+                neighborhoods[index].nodes.append([nuc_node])
 
-        for nuc_node in nuc_nodes:
-            index = random.randint(0, len(neighborhoods) - 1)
-            neighborhoods[index].nodes.append([nuc_node])
-
-        def get_first_non_empty_node(neighorbood):
-            for n in neighorbood.nodes:
-                if type(n) is list and len(n) > 0:
-                    if type(n) is IoTComputeBox:
-                        return n.nodes[0]
-                    return n[0]
-            return None
+        def get_random_non_empty_node(neighorbood):
+            idx = random.randint(0, len(neighorbood.nodes) - 1)
+            if len(neighorbood.nodes[idx]) > 0 and type(neighorbood.nodes[idx][0]) is IoTComputeBox:
+                if len(neighorbood.nodes[idx][0].nodes) > 0:
+                    return neighorbood.nodes[idx][0].nodes[0]
+                else:
+                    return None
+            elif len(neighorbood.nodes[idx]) > 0:
+                return neighorbood.nodes[idx][0]
+            else:
+                return None
+            # for n in neighorbood.nodes:
+            #    if type(n) is list and len(n) > 0:
+            #        if type(n) is IoTComputeBox:
+            #            return n.nodes[0]
+            #        return n[0]
+            # return None
 
         # init date storages
         for neighborhood in neighborhoods:
-            non_empty_node = get_first_non_empty_node(neighborhood)
+            non_empty_node = get_random_non_empty_node(neighborhood)
             if non_empty_node is None:
                 continue
 
@@ -289,3 +268,6 @@ class HeterogeneousUrbanSensingScenario(UrbanSensingScenario):
 
     def _filter_nodes(self, name: str) -> List[Node]:
         return list(filter(lambda n: name in n.name, self.nodes))
+
+    def filter_nodes(self, name: str) -> List[Node]:
+        return self._filter_nodes(name)

@@ -1,10 +1,11 @@
 import logging
 import random
 
-from skippy.core.clustercontext import ClusterContext
-from skippy.core.model import SchedulingResult, Pod
+
 
 import examples.basic.main as basic
+from core.clustercontext import ClusterContext
+from core.model import SchedulingResult, Pod
 from sim.core import Environment
 from sim.faassim import Simulation
 

@@ -1,7 +1,6 @@
-from skippy.core.clustercontext import ClusterContext
-from skippy.core.model import Pod, Node
-from skippy.core.predicates import Predicate
-
+from core.clustercontext import ClusterContext
+from core.model import Pod, Node
+from core.predicates import Predicate
 from ext.raith21.model import Accelerator
 from sim.oracle.oracle import ResourceOracle, FetOracle
 

@@ -1,8 +1,7 @@
 import logging
 import time
 
-from skippy.core.scheduler import Scheduler
-
+from core.scheduler import Scheduler
 from sim.benchmark import Benchmark
 from sim.core import Environment, timeout_listener
 from sim.docker import ContainerRegistry, pull as docker_pull

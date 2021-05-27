@@ -1,5 +1,4 @@
-from skippy.core.priorities import ImageLocalityPriority, BalancedResourcePriority
-
+from core.priorities import BalancedResourcePriority, ImageLocalityPriority
 from ext.raith21.util import predicates
 
 

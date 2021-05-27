@@ -3,9 +3,9 @@ from typing import Set, Optional, Any, Generator, Callable, List, Dict
 
 import numpy as np
 import simpy
-from ether.core import Node as EtherNode, Capacity
 from sklearn.base import RegressorMixin
 
+from ether.core import Node as EtherNode, Capacity
 from .degradation import create_degradation_model_input
 from .oracle.oracle import ResourceOracle
 

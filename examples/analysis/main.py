@@ -3,6 +3,7 @@ import logging
 import examples.basic.main as basic
 from examples.custom_function_sim.main import CustomSimulatorFactory
 from sim.faassim import Simulation
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,10 @@ def main():
     }
 
     logger.info('Mean exec time %d', dfs['invocations_df']['t_exec'].mean())
+    logger.info('-------------------------------')
+    for key, value in dfs.items():
+        json_list = json.loads(json.dumps(list(value.T.to_dict().values())))
+        logger.info('%s:%s' % (key, json_list))
 
 
 if __name__ == '__main__':

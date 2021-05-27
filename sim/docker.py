@@ -95,4 +95,16 @@ def pull(env: Environment, image_str: str, node: Node):
 
     # for hop in route.hops:
     #     env.metrics.log_network(size, 'docker_pull', hop)
-    env.metrics.log_flow(size, env.now - started, route.source, route.destination, 'docker_pull')
+    simulate_docker_transfer(env, size, started, env.now, route.source, route.destination, 'cloud')
+    # env.metrics.log_flow(size, env.now - started, route.source, route.destination, 'docker_pull',
+    #                     **{'t_locality': 'cloud'})
+
+
+def simulate_docker_transfer(env: Environment, total_bytes, started, end, source, destination, locality):
+    bytes_sec = total_bytes / (end - started)
+    rest_bytes = total_bytes
+    for i in range(int(started) + 1, int(end)):
+        rest_bytes = rest_bytes - bytes_sec
+        sent = bytes_sec if rest_bytes > bytes_sec else rest_bytes
+        env.metrics.log_flow(sent, end - started, source, destination, 'docker_pull',
+                             **{'t_locality': locality, 't_time': i})

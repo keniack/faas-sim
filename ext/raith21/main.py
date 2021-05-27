@@ -2,11 +2,12 @@
 # coding: utf-8
 import logging
 import random
+from collections import defaultdict
 
 import numpy as np
-from skippy.core.scheduler import Scheduler
-from skippy.core.storage import StorageIndex
 
+from core.scheduler import Scheduler
+from core.storage import StorageIndex
 from ext.raith21 import images
 from ext.raith21.benchmark.constant import ConstantBenchmark
 from ext.raith21.characterization import get_raith21_function_characterizations
@@ -64,7 +65,7 @@ sched_params = {
 benchmark = ConstantBenchmark('mixed', duration=200, rps=50)
 
 # Initialize topology
-storage_index = StorageIndex()
+storage_index = StorageIndex(buckets=defaultdict(), tree=defaultdict(), items=defaultdict())
 topology = urban_sensing_topology(ether_nodes, storage_index)
 
 # Initialize environment

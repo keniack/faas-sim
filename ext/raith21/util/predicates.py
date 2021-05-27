@@ -1,5 +1,4 @@
-from skippy.core.scheduler import Scheduler
-
+from core.scheduler import Scheduler
 from ext.raith21.predicates import CanRunPred, HasEnoughRamPredicate, NodeHasAcceleratorPred, NodeHasFreeGpu, \
     NodeHasFreeTpu
 

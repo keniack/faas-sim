@@ -1,4 +1,5 @@
 import logging
+import random
 import time
 from collections import defaultdict, Counter
 from typing import Dict, List
@@ -6,6 +7,8 @@ from typing import Dict, List
 import simpy
 from ether.util import parse_size_string
 
+from core.utils import get_bucket_from_label, get_file_from_label
+from ext.datalocality.dataindex import get_best_node
 from sim.core import Environment
 from sim.faas import RoundRobinLoadBalancer, FunctionDeployment, FunctionReplica, FunctionContainer, FunctionRequest, \
     FunctionState
@@ -226,7 +229,6 @@ class DefaultFaasSystem(FaasSystem):
                     yield from self.deploy_replica(fd, fd.get_container(service.image), fd.get_containers()[index:])
                     actually_scaled += 1
                     scale -= 1
-
         self.env.metrics.log_scaling(fd.name, actually_scaled)
 
         if scale > 0:
@@ -257,15 +259,16 @@ class DefaultFaasSystem(FaasSystem):
             # schedule the required pod
             self.env.metrics.log_start_schedule(replica)
             pod = replica.pod
-            then = time.time()
+            start = time.time()
             result = env.scheduler.schedule(pod)
-            duration = time.time() - then
-            self.env.metrics.log_finish_schedule(replica, result)
+            duration = (time.time() - start)
+            self.env.metrics.log_finish_schedule(replica, result,
+                                                 **{'t_exec': duration, 'feasible_nodes': result.feasible_nodes})
 
             yield env.timeout(duration)  # include scheduling latency in simulation time
 
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug('Pod scheduling took %.2f ms, and yielded %s', duration * 1000, result)
+                logger.debug('Pod scheduling took %.2f s, and yielded %s', duration, result)
 
             if not result.suggested_host:
                 self.replicas[replica.fn_name].remove(replica)
@@ -360,28 +363,67 @@ def simulate_data_download(env: Environment, replica: FunctionReplica):
     func = replica
     started = env.now
 
-    if 'data.skippy.io/receives-from-storage' not in func.pod.spec.labels:
+    consume_file_labels = [(key, value) for key, value in func.pod.spec.labels.items() if
+                           key.startswith('skippy.io.data.consume')]
+    if not consume_file_labels:
         return
 
-    # FIXME: storage
-    size = parse_size_string(func.pod.spec.labels['data.skippy.io/receives-from-storage'])
-    path = func.pod.spec.labels['data.skippy.io/receives-from-storage/path']
+    data_items = [(env.cluster.storage_index.stat(get_bucket_from_label(f[1]), get_file_from_label(f[1]))) for f in
+                  consume_file_labels]
+    data_items = [x for x in data_items if x is not None]
+    if len(data_items) == 0:
+        return
+    # size = sum([d.size for d in data_items])
+    # yield env.timeout(size / random.choices([1.25e+8, 1.5e+9])[0] )
+    # return
+    for di in data_items:
+        storage_node_name = get_best_node(di.bucket, di.name, node.name, env, di.size, False)
+        logger.debug('%.2f replica %s fetching data %s/%s from %s', env.now, node, di.bucket, di.name,
+                     storage_node_name)
 
-    storage_node_name = env.cluster.get_storage_nodes(path)[0]
-    logger.debug('%.2f replica %s fetching data %s from %s', env.now, node, path, storage_node_name)
+        if storage_node_name == node.name:
+            # FIXME this is essentially a disk read and not a network connection
+            yield env.timeout(di.size / 1.25e+8)  # 1.25e+8 = 1 GBit/s
+            return
 
-    if storage_node_name == node.name:
-        # FIXME this is essentially a disk read and not a network connection
-        yield env.timeout(size / 1.25e+8)  # 1.25e+8 = 1 GBit/s
+        storage_node = env.cluster.get_node(storage_node_name)
+        route = env.topology.route_by_node_name(storage_node.name, node.name)
+        flow = SafeFlow(env, di.size, route)
+        yield flow.start()
+        for hop in route.hops:
+            env.metrics.log_network(di.size, 'data_download', hop)
+
+        locality_source = env.topology.find_node(route.source.name).labels.get('locality.skippy.io/type')
+        locality_target = env.topology.find_node(route.destination.name).labels.get('locality.skippy.io/type')
+        locality = 'cloud' if locality_source == 'cloud' or locality_target == 'cloud' else 'edge'
+        simulate_data_transfer(env, di.size, started, env.now, route.source, route.destination, locality,
+                               'data_download')
+        # env.metrics.log_flow(di.size, env.now - started, route.source, route.destination, 'data_download',**{'t_locality':locality})
+
+
+def simulate_data_transfer(env: Environment, total_bytes, started, end, source, destination, locality, action):
+    bytes_sec = total_bytes / (end - started)
+    rest_bytes = total_bytes
+    for i in range(int(started) + 1, int(end)):
+        rest_bytes = rest_bytes - bytes_sec
+        sent = bytes_sec if rest_bytes > bytes_sec else rest_bytes
+        env.metrics.log_flow(sent, end - started, source, destination, action,
+                             **{'t_locality': locality, 't_time': i})
+
+
+def get_estimated_file_size(env: Environment, func: FunctionReplica):
+    consume_file_labels = [(key, value) for key, value in func.pod.spec.labels.items() if
+                           key.startswith('skippy.io.data.consume')]
+    if not consume_file_labels:
         return
 
-    storage_node = env.cluster.get_node(storage_node_name)
-    route = env.topology.route_by_node_name(storage_node.name, node.name)
-    flow = SafeFlow(env, size, route)
-    yield flow.start()
-    for hop in route.hops:
-        env.metrics.log_network(size, 'data_download', hop)
-    env.metrics.log_flow(size, env.now - started, route.source, route.destination, 'data_download')
+    data_items = [(env.cluster.storage_index.stat(get_bucket_from_label(f[1]), get_file_from_label(f[1]))) for f in
+                  consume_file_labels]
+    data_items = [x for x in data_items if x is not None]
+    if len(data_items) == 0:
+        return
+    size = sum([d.size for d in data_items])
+    return size
 
 
 def simulate_data_upload(env: Environment, replica: FunctionReplica):
@@ -389,28 +431,38 @@ def simulate_data_upload(env: Environment, replica: FunctionReplica):
     func = replica
     started = env.now
 
-    if 'data.skippy.io/sends-to-storage' not in func.pod.spec.labels:
+    produce_file_labels = [(key, value) for key, value in func.pod.spec.labels.items() if
+                           key.startswith('skippy.io.data.produce')]
+    if not produce_file_labels:
         return
 
-    # FIXME: storage
-    size = parse_size_string(func.pod.spec.labels['data.skippy.io/sends-to-storage'])
-    path = func.pod.spec.labels['data.skippy.io/sends-to-storage/path']
+    buckets = [get_bucket_from_label(f[1]) for f in produce_file_labels]
+    if not buckets:
+        return 0
 
-    storage_node_name = env.cluster.get_storage_nodes(path)[0]
-    logger.debug('%.2f replica %s uploading data %s to %s', env.now, node, path, storage_node_name)
+    size = get_estimated_file_size(env, replica)
+    for bucket in buckets:
+        storage_node_name = get_best_node(bucket, '', node.name, env, size, True)
+        logger.debug('%.2f replica %s uploading data %s to %s', env.now, node, bucket, storage_node_name)
 
-    if storage_node_name == node.name:
-        # FIXME this is essentially a disk read and not a network connection
-        yield env.timeout(size / 1.25e+8)  # 1.25e+8 = 1 GBit/s
-        return
+        # if storage_node_name == node.name:
+        #    # FIXME this is essentially a disk read and not a network connection
+        #    yield env.timeout(size / 1.25e+8)  # 1.25e+8 = 1 GBit/s
+        #    return
 
-    storage_node = env.cluster.get_node(storage_node_name)
-    route = env.topology.route_by_node_name(node.name, storage_node.name)
-    flow = SafeFlow(env, size, route)
-    yield flow.start()
-    for hop in route.hops:
-        env.metrics.log_network(size, 'data_upload', hop)
-    env.metrics.log_flow(size, env.now - started, route.source, route.destination, 'data_upload')
+        storage_node = env.cluster.get_node(storage_node_name)
+        route = env.topology.route_by_node_name(node.name, storage_node.name)
+        flow = SafeFlow(env, size, route)
+        yield flow.start()
+        for hop in route.hops:
+            env.metrics.log_network(size, 'data_upload', hop)
+
+        # env.metrics.log_flow(size, env.now - started, route.source, route.destination, 'data_upload',
+        #                     **{'t_locality': locality})
+        locality_source = env.topology.find_node(route.source.name).labels.get('locality.skippy.io/type')
+        locality_target = env.topology.find_node(route.destination.name).labels.get('locality.skippy.io/type')
+        locality = 'cloud' if locality_source == 'cloud' or locality_target == 'cloud' else 'edge'
+        simulate_data_transfer(env, size, started, env.now, route.source, route.destination, locality, 'data_upload')
 
 
 def simulate_function_invocation(env: Environment, replica: FunctionReplica, request: FunctionRequest):

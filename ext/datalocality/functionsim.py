@@ -1,4 +1,5 @@
 import logging
+from random import randrange
 from typing import Callable, Optional, Dict
 
 from simpy import Resource
@@ -11,6 +12,9 @@ from sim.faas import FunctionSimulator, FunctionRequest, FunctionReplica, Simula
 
 def linear_queue_fet_increase(current_requests: int, max_requests: int) -> float:
     return current_requests / max_requests
+
+
+logger = logging.getLogger(__name__)
 
 
 class PythonHTTPSimulator(FunctionSimulator):
@@ -86,18 +90,20 @@ class InterferenceAwarePythonHttpSimulatorFactory(SimulatorFactory):
                                                     self.fn_characterizations[fn.image])
 
 
-class AIPythonHTTPSimulatorFactory(SimulatorFactory):
+class DataLocalityHTTPSimulatorFactory(SimulatorFactory):
 
     def __init__(self, fn_characterizations: Dict[str, FunctionCharacterization]):
         self.fn_characterizations = fn_characterizations
 
     def create(self, env: Environment, fn: FunctionContainer) -> FunctionSimulator:
-        workers = int(fn.labels['workers'])
+        workers = 0
+        if fn.labels.get('workers'):
+            workers = int(fn.labels['workers'])
         queue = Resource(env=env, capacity=workers)
-        return AIPythonHTTPSimulator(queue, linear_queue_fet_increase, fn, self.fn_characterizations[fn.image])
+        return DataLocalityHTTPSimulator(queue, linear_queue_fet_increase, fn, self.fn_characterizations[fn.image])
 
 
-class AIPythonHTTPSimulator(FunctionSimulator):
+class DataLocalityHTTPSimulator(FunctionSimulator):
     def __init__(self, queue: Resource, scale: Callable[[int, int], float], fn: FunctionContainer,
                  characterization: FunctionCharacterization):
         self.worker_threads = queue.capacity
@@ -132,17 +138,22 @@ class AIPythonHTTPSimulator(FunctionSimulator):
             fet = float(fet) * factor
 
             image = replica.pod.spec.containers[0].image
-            if 'preprocessing' in image or 'training' in image:
+            if 'ml-pre' in image or 'train' or 'eval' in image:
                 yield from simulate_data_download(env, replica)
             start = env.now
             call = FunctionCall(request, replica, start)
             replica.node.all_requests.append(call)
             yield env.timeout(fet)
-            if 'preprocessing' in image or 'training' in image:
+            if 'ml-pre' in image or 'train' or 'eval' in image:
                 yield from simulate_data_upload(env, replica)
             t_fet_end = env.now
-            env.metrics.log_fet(request.name, replica.image, replica.node.name, t_fet_start, t_fet_end,
-                                1, id(replica), **{'t_wait_start': t_wait_start, 't_wait_end': t_wait_end})
+            locality = env.topology.find_node(replica.node.name).labels.get('locality.skippy.io/type') \
+                if env.topology.find_node(replica.node.name) else None
+            #t_duration = (t_fet_end - t_fet_start) + randrange(250, 300)
+            t_duration = (t_fet_end - t_fet_start)
+            env.metrics.log_fet(request.name, replica.image, replica.node.name, t_fet_start, t_fet_end, 1, id(replica),
+                                **{'t_wait_start': t_wait_start, 't_wait_end': t_wait_end,
+                                   't_tet': t_duration, 't_node_locality': locality})
             replica.node.set_end(request.request_id, t_fet_end)
         except KeyError:
             pass

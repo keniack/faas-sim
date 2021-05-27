@@ -88,6 +88,8 @@ class LazyBandwidthGraph:
         def __getitem__(self, destination: str) -> Optional[float]:
             if destination in self.bwg.cache[self.source]:
                 return self.bwg.cache[self.source][destination]
+            elif self.source in self.bwg.cache[destination]:
+                return self.bwg.cache[destination][self.source]
 
             if self.source == destination:
                 # FIXME: should this case maybe be handled in the scheduler/priorities?
@@ -100,4 +102,5 @@ class LazyBandwidthGraph:
             bandwidth = min([link.bandwidth for link in route.hops])
 
             self.bwg.cache[self.source][destination] = bandwidth
+            self.bwg.cache[destination][self.source] = bandwidth
             return bandwidth

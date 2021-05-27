@@ -2,21 +2,26 @@
 Module that glues simulation concepts to skippy concepts.
 """
 import copy
+import logging
+import operator
 import random
 from collections import defaultdict
+from functools import reduce
 from typing import List, Dict
 
 from ether.core import Node as EtherNode
-from skippy.core.clustercontext import ClusterContext
-from skippy.core.model import Node as SkippyNode, Capacity as SkippyCapacity, ImageState, Pod, PodSpec, Container, \
-    ResourceRequirements
-from skippy.core.storage import StorageIndex
-from skippy.core.utils import counter
 
+from core.clustercontext import ClusterContext
+from core.model import ImageState, PodSpec, Container, Pod, ResourceRequirements, Node as SkippyNode, \
+    Capacity as SkippyCapacity
+from core.storage import StorageIndex
+from core.utils import counter
 from sim import docker
 from sim.core import Environment
 from sim.faas import FunctionContainer, FunctionDeployment
 from sim.topology import LazyBandwidthGraph, DockerRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class SimulationClusterContext(ClusterContext):
@@ -33,6 +38,24 @@ class SimulationClusterContext(ClusterContext):
 
         self.storage_index = env.storage_index or StorageIndex()
         self._storage_nodes = None
+        #self.create_node_item_index()
+
+
+    def create_node_item_index(self):
+        for node in self.list_nodes():
+            for bucket, file_name in self.storage_index.items:
+                storage_nodes = self.storage_index.get_data_nodes(bucket, file_name)
+                storage_nodes = [s for s in storage_nodes if s != node.name]
+                bw = self.get_bandwidth_graph()[node.name]
+                fastest_storage_node = max(storage_nodes, key=lambda n: bw[n])
+                k = (node.name, bucket, file_name)
+                self.storage_index.consume_node_item[k] = fastest_storage_node
+            for bucket, storage_nodes in self.storage_index.buckets.items():
+                storage_nodes = [s for s in storage_nodes if s != node.name]
+                bw = self.get_bandwidth_graph()[node.name]
+                fastest_storage_node = max(storage_nodes, key=lambda n: bw[n])
+                k = (node.name, bucket)
+                self.storage_index.bucket_nodes[k] = fastest_storage_node
 
     def get_init_image_states(self) -> Dict[str, ImageState]:
         # FIXME: fix this image state business in skippy
@@ -49,6 +72,7 @@ class SimulationClusterContext(ClusterContext):
             sizes = {
                 'x86': images[0].size,
                 'arm': images[0].size,
+                'arm32': images[0].size,
                 'arm32v7': images[0].size,
                 'aarch64': images[0].size,
                 'arm64': images[0].size,
@@ -84,10 +108,26 @@ class SimulationClusterContext(ClusterContext):
 
         return storage_node.name
 
+    def get_storage_nodes(self, bucket: str, name: str) -> List[str]:
+        storage_list = self.storage_index.get_bucket_nodes(bucket)
+        if storage_list is None:
+            return None
+        return list(storage_list)
+
+    def get_storage_index(self) -> StorageIndex:
+        items = defaultdict(dict)
+        buckets = defaultdict(set)
+        tree = defaultdict(lambda: defaultdict(list))
+        return StorageIndex(buckets, tree, items)
+
     @property
     def storage_nodes(self) -> Dict[str, SkippyNode]:
-        if self._storage_nodes is None:
-            self._storage_nodes = {node.name: node for node in self.list_nodes() if self.is_storage_node(node)}
+        if self._storage_nodes:
+            return self._storage_nodes
+
+        s_nodes = reduce(operator.or_, self.storage_index.get_storage_nodes())
+        if s_nodes:
+            self._storage_nodes = {node.name: node for node in self.list_nodes() if node.name in s_nodes}
 
         return self._storage_nodes
 

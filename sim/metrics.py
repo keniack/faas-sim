@@ -3,8 +3,8 @@ from typing import Dict
 
 import pandas as pd
 from ether.core import Capacity
-from skippy.core.model import SchedulingResult
 
+from core.model import SchedulingResult
 from sim.core import Environment
 from sim.faas import FunctionContainer, FunctionRequest, FunctionReplica, FunctionDeployment
 from sim.logging import RuntimeLogger, NullLogger
@@ -63,18 +63,18 @@ class Metrics:
 
             self.log('function_replicas', record, replica_id=id(replica))
 
-    def log_flow(self, num_bytes, duration, source, sink, action_type):
+    def log_flow(self, num_bytes, duration, source, sink, action_type,**kwargs):
         self.log('flow', value={'bytes': num_bytes, 'duration': duration},
-                 source=source.name, sink=sink.name, action_type=action_type)
+                 source=source.name, sink=sink.name, action_type=action_type,**kwargs)
 
-    def log_network(self, num_bytes, data_type, link):
+    def log_network(self, num_bytes, data_type, link,**kwargs):
         tags = dict(link.tags)
         tags['data_type'] = data_type
 
-        self.log('network', num_bytes, **tags)
+        self.log('network', num_bytes, **tags,**kwargs)
 
-    def log_scaling(self, function_name, replicas):
-        self.log('scale', replicas, function_name=function_name)
+    def log_scaling(self, function_name, replicas,**kwargs):
+        self.log('scale', replicas, function_name=function_name,**kwargs)
 
     def log_invocation(self, function_name, function_image, node_name, t_wait, t_start, t_exec, replica_id):
         function = self.env.faas.get_function_index()[function_image]
@@ -157,7 +157,7 @@ class Metrics:
         self.log('schedule', 'start', function_name=name, image=image,
                  replica_id=id(replica))
 
-    def log_finish_schedule(self, replica: FunctionReplica, result: SchedulingResult):
+    def log_finish_schedule(self, replica: FunctionReplica, result: SchedulingResult, **kwargs):
         if not result.suggested_host:
             node_name = 'None'
         else:
@@ -165,7 +165,7 @@ class Metrics:
 
         self.log('schedule', 'finish', function_name=replica.function.name, image=replica.container.image,
                  node_name=node_name,
-                 successful=node_name != 'None', replica_id=id(replica))
+                 successful=node_name != 'None', replica_id=id(replica), **kwargs)
 
     def log_function_deploy(self, replica: FunctionReplica):
         fn = replica.container

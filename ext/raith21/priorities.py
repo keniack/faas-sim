@@ -1,10 +1,9 @@
 import ast
 from typing import Dict
 
-from skippy.core.clustercontext import ClusterContext
-from skippy.core.model import Pod, Node
-from skippy.core.priorities import Priority, _scale_scores
-
+from core.clustercontext import ClusterContext
+from core.model import Pod, Node
+from core.priorities import Priority, _scale_scores
 from sim.oracle.oracle import FetOracle, ResourceOracle
 
 

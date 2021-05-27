@@ -6,8 +6,8 @@ from typing import List, Dict, NamedTuple, Optional
 
 from ether.core import Node as EtherNode
 from ether.util import parse_size_string
-from skippy.core.model import Pod
 
+from core.model import Pod
 from sim.core import Environment, NodeState
 from sim.oracle.oracle import FetOracle, ResourceOracle
 
@@ -182,7 +182,7 @@ class FunctionContainer:
 
 class ScalingConfiguration:
     scale_min: int = 1
-    scale_max: int = 20
+    scale_max: int = 1000
     scale_factor: int = 1
     scale_zero: bool = False
 
